@@ -1,5 +1,6 @@
 from flask import render_template, redirect, request, session, url_for
 from flask_login import current_user, login_user, logout_user, login_required
+from msal import PublicClientApplication
 import msal
 import uuid
 from config import Config
@@ -35,7 +36,9 @@ def logout():
         #   And make sure to redirect from there back to the login page
         pass
 
-    return redirect(url_for('login'))
+    return redirect(
+        Config.AUTHORITY + '/oauth2/v2.0/logout' +
+        '?post_logout_redirect_uri=' + url_for('login', _external=True))
 
 
 @app.route(Config.REDIRECT_PATH)  # Its absolute URL must match your app's redirect_uri set in AAD
@@ -46,9 +49,11 @@ def authorized():
         return render_template('auth_error.html', result=request.args)
     if request.args.get('code'):
         cache = _load_cache()
-        # TODO: Acquire a token by authorization code from an MSAL app
-        #  And replace the error dictionary
-        result = {'error': 'Not Implemented', 'error_description': 'Function not implemented.'}
+        result = _build_msal_app(cache=cache).acquire_token_by_authorization_code(
+            code=request.args['code'],
+            scopes=Config.SCOPE,
+            redirect_uri=url_for('authorized',_external=True,_scheme='https')
+        )
         if 'error' in result:
             return render_template('auth_error.html', result=result)
         session['user'] = result.get('id_token_claims')
@@ -75,10 +80,12 @@ def _save_cache(cache):
 
 
 def _build_msal_app(cache=None, authority=None):
-    # TODO: Create and return a Confidential Client Application from msal
-    return None
+    return msal.ConfidentialClientApplication(client_id=Config.CLIENT_ID, authority=authority or Config.AUTHORITY,
+                                              client_credential=Config.CLIENT_SECRET, token_cache=cache)
 
 
 def _build_auth_url(authority=None, scopes=None, state=None):
-    # TODO: Get the authorization request URL from a built msal app, and return it
-    return None
+    return _build_msal_app(authority=authority).get_authorization_request_url(
+        scopes or [],
+        state=state or str(uuid.uuid4()),
+        redirect_uri=url_for('authorized', _external=True, _scheme='https'))
